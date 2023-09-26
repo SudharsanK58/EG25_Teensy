@@ -35,10 +35,53 @@ String sendATCommand3(const String &command, const String &expectedResponse, uns
 
   return "TIMEOUT";
 }
+void checkSimCardStatus() {
+  String command = "AT+QSIMSTAT?";
+  String expectedResponsePrefix = "+QSIMSTAT:";
+  unsigned long timeout = 5000; // 5 seconds timeout
+
+  // Send the AT command to check SIM card status
+  String response = sendATCommand3(command, expectedResponsePrefix, timeout);
+
+  // Check if the response starts with the expected prefix
+  if (response.startsWith(expectedResponsePrefix)) {
+    // Extract the enable and inserted status values from the response
+    response.remove(0, expectedResponsePrefix.length()); // Remove the prefix
+    response.trim(); // Remove leading/trailing spaces
+
+    // Split the response into two parts (enable and inserted status)
+    int commaIndex = response.indexOf(',');
+    if (commaIndex != -1) {
+      String enableStatus = response.substring(0, commaIndex);
+      String insertedStatus = response.substring(commaIndex + 1);
+
+      // Check if the SIM card is present (insertedStatus == "1")
+      if (insertedStatus.toInt() == 1) {
+        // Print a message indicating the SIM card is present
+        Serial.println("SIM card is present");
+      } else {
+        // Halt the program and print a message if the SIM card is not present
+        Serial.println("Please insert the SIM card");
+        while (true) {
+          // Halt the program here
+        }
+      }
+    }
+  } else {
+    // Handle unexpected response
+    Serial.println("Unexpected response: " + response);
+  }
+}
+
+
 void setup() {
   // put your setup code here, to run once:
-   Serial.begin(allSerialBraudrate);
-   eg25.begin(allSerialBraudrate);
+  Serial.println("Sample EG25 program is started");
+  Serial.begin(allSerialBraudrate);
+  eg25.begin(allSerialBraudrate);
+  delay(2000);
+  checkSimCardStatus();
+  delay(1000);
 }
 
 void loop() {
