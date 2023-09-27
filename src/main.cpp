@@ -1,6 +1,8 @@
 #include <Arduino.h>
 
 int allSerialBraudrate = 115200;
+String operatorName; // Global variable to store the operator name
+String networkTypeString; // Global variable to store the network type as a string
 HardwareSerial &eg25 = Serial1;          // Define Serial1 as EG25-G
 
 String generateRandomString(size_t length)
@@ -176,6 +178,80 @@ void activateAPN() {
     // Halt the program here
   }
 }
+
+// Function to get the network the SIM card is connected to
+void getConnectedNetwork() {
+  String command = "AT+COPS?";
+  String expectedResponsePrefix = "+COPS:";
+  unsigned long timeout = 5000; // 5 seconds timeout
+
+  // Send the AT command to get connected network information
+  String response = sendATCommand3(command, expectedResponsePrefix, timeout);
+
+  // Check if the response starts with the expected prefix
+  if (response.startsWith(expectedResponsePrefix)) {
+    // Extract the operator name and network type from the response
+    response.remove(0, expectedResponsePrefix.length()); // Remove the prefix
+    response.trim(); // Remove leading/trailing spaces
+
+    // Find the first quote character
+    int firstQuoteIndex = response.indexOf('\"');
+    if (firstQuoteIndex != -1) {
+      // Find the second quote character
+      int secondQuoteIndex = response.indexOf('\"', firstQuoteIndex + 1);
+      if (secondQuoteIndex != -1) {
+        // Extract the operator name between the quotes
+        operatorName = response.substring(firstQuoteIndex + 1, secondQuoteIndex);
+        
+        // Find the last number in the response
+        int lastIndex = response.lastIndexOf(',');
+        if (lastIndex != -1) {
+          // Extract the network type as the last number
+          String networkTypeStr = response.substring(lastIndex + 1);
+          int networkType = networkTypeStr.toInt(); // Get the network type as an integer
+          
+          // Interpret the network type based on your requirements
+          switch (networkType) {
+            case 0:
+              networkTypeString = "GSM";
+              break;
+            case 2:
+              networkTypeString = "UTRAN";
+              break;
+            case 3:
+              networkTypeString = "GSM W/EGPRS";
+              break;
+            case 4:
+              networkTypeString = "UTRAN W/HSDPA";
+              break;
+            case 5:
+              networkTypeString = "UTRAN W/HSUPA";
+              break;
+            case 6:
+              networkTypeString = "UTRAN W/HSDPA and HSUPA";
+              break;
+            case 7:
+              networkTypeString = "E-UTRAN";
+              break;
+            case 100:
+              networkTypeString = "CDMA";
+              break;
+            default:
+              networkTypeString = "Unknown";
+              break;
+          }
+          return;
+        }
+      }
+    }
+  }
+
+  // Handle unexpected response
+  operatorName = "Unknown";
+  networkTypeString = "Unknown";
+  Serial.println("Could not retrieve connected network information");
+}
+
 // Function to activate the internet with retry and timeout
 void activateInternet() {
   String internetCommand = "AT+CREG?";
@@ -356,6 +432,14 @@ void setup() {
   setInternetRegistration();
   delay(200);
   activateInternet();
+  delay(1000);
+  getConnectedNetwork();
+  delay(100);
+  // Print the operator name and network type
+  Serial.print("Operator Name: ");
+  Serial.println(operatorName);
+  Serial.print("Network Type: ");
+  Serial.println(networkTypeString);
   resetMQTT();
   delay(500);
   setMQTTMode();
