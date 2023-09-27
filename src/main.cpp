@@ -63,11 +63,11 @@ void setInternetRegistration() {
 
     if (response == expectedResponse) {
       // Setting Internet registration successful
-      Serial.println("Internet registration set to '1' successfully");
+      Serial.println("Internet registration success");
       return; // Exit the function on success
     } else {
       // Handle command failure or timeout
-      Serial.println("Failed to set Internet registration to '1'");
+      Serial.println("Failed to set Internet failed");
     }
   }
 
@@ -77,7 +77,7 @@ void setInternetRegistration() {
   // delay(1000); // 1-second delay before retry
 }
 
-String getDeviceModel() {
+String getEG25DeviceModel() {
   String command = "AT+GMR";
   String expectedResponsePrefix = "EG";
   unsigned long timeout = 5000; // 5 seconds timeout
@@ -420,7 +420,7 @@ void setup() {
   // put your setup code here, to run once:
   Serial.println("Sample EG25 program is started");
   delay(6000);
-  String deviceModel = getDeviceModel();
+  String deviceModel = getEG25DeviceModel();
   Serial.println("Device Model: " + deviceModel);
   Serial.begin(allSerialBraudrate);
   eg25.begin(allSerialBraudrate);
