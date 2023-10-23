@@ -1,25 +1,33 @@
 #include <Arduino.h>
 int allSerialBraudrate = 115200;
 HardwareSerial &eg25 = Serial1;          // Define Serial1 as EG25-G
-String globalURL = "https://zig-app.com/Ticket/api/Hardware/Hardwaresettings"; // Replace with your desired URL
+HardwareSerial &espSerial = Serial2;
+String globalURL = "https://zig-app.com/Ticket/api/Hardware/Hardwaresettings/04:e9:e5:15:70:91"; // Replace with your desired URL
 
 String jsonResponse = ""; // Declare a global String variable
 String previousResponse = ""; // Store the previous response
 bool jsonStarted = false; 
 String extractedJSON = "";
 
-String sendATCommand3(const String &command, const String &expectedResponse, unsigned long timeout)
+const String primarySSID = "Zusan"; // Replace with your primary SSID
+const String primaryPassword = "Wireless4U!"; // Replace with your primary Wi-Fi password
+const String secondarySSID = "Zed"; // Replace with your secondary SSID
+const String secondaryPassword = "Wireless4U!"; // Replace with your secondary Wi-Fi password
+const unsigned long WifiTimeout = 30000; // 5 seconds
+
+
+String sendWifiATCommands(const String &command, const String &expectedResponse, unsigned long timeout)
 {
-  eg25.println(command);
+  espSerial.println(command);
   // Serial.println("Command sent: " + command); // Debug print
 
   unsigned long startTime = millis();
 
   while (millis() - startTime < timeout)  
   {
-    if (eg25.available())
+    if (espSerial.available())
     {
-      String response = eg25.readStringUntil('\n');
+      String response = espSerial.readStringUntil('\n');
       response.trim(); // Remove whitespace characters
       // Serial.println(response);
       if (response.length() > 0)
@@ -40,212 +48,223 @@ String sendATCommand3(const String &command, const String &expectedResponse, uns
 
   return "TIMEOUT";
 }
-
-
-
-void get4GApiReponse()
+void resetAndDisconnect()
 {
-  // Send the AT+QHTTPSTOP command to stop any ongoing HTTP(S) request.
-  String command = "AT+QHTTPSTOP";
-  String expectedResponse = "OK";
-  unsigned long timeout = 5000; // Adjust the timeout as needed.
+  unsigned long timeout = 5000; // 5 seconds
 
-  String response = sendATCommand3(command, expectedResponse, timeout);
+  // Send AT+RST
+  String response = sendWifiATCommands("AT+RST", "ready", timeout);
 
-  if (response == "OK")
-  {
-    Serial.println("HTTP(S) request stopped successfully.");
-  }
-  else if (response == "TIMEOUT")
-  {
-    Serial.println(command + "Timeout while waiting for response.");
-  }
-  else
-  {
-    Serial.println("Error: " + response);
-  }
+  if (response == "ready") {
+    Serial.println("ESP32 Successful (Ready)");
+    // Proceed to disconnect
+    response = sendWifiATCommands("AT+CWQAP", "OK", timeout);
 
-  // Send the AT+QHTTPCFG="contextid",1 command.
-  command = "AT+QHTTPCFG=\"contextid\",1";
-  expectedResponse = "OK";
-  timeout = 5000; // Adjust the timeout as needed.
-
-  response = sendATCommand3(command, expectedResponse, timeout);
-
-  if (response == "OK")
-  {
-    Serial.println("Context ID configured successfully.");
+    if (response == "OK") {
+      Serial.println("WIFI reset Successful");
+    } else {
+      Serial.println("WIFI reset Failed");
+    }
+  } else {
+    Serial.println("WIFI Init failed");
   }
-  else if (response == "TIMEOUT")
-  {
-    Serial.println(command + "Timeout while waiting for response.");
-    return; 
-  }
-  else
-  {
-    Serial.println("Error: " + response);
-    return; 
-  }
+}
 
-  command = "AT+QHTTPCFG=\"responseheader\",1";
-  expectedResponse = "OK";
-  timeout = 5000; 
-
-  response = sendATCommand3(command, expectedResponse, timeout);
-
-  if (response == "OK")
-  {
-    Serial.println("Response header configured successfully.");
-  }
-  else if (response == "TIMEOUT")
-  {
-    Serial.println(command + "Timeout while waiting for response.");
-    return; 
-  }
-  else
-  {
-    Serial.println("Error: " + response);
-    return; 
-  }
-
-
-  command = "AT+QIACT=1";
-  expectedResponse = "OK";
-  timeout = 15000; 
-
-  response = sendATCommand3(command, expectedResponse, timeout);
-
-  if (response == "OK")
-  {
-    Serial.println("PDP context activated successfully.");
-  }
-  else if (response == "TIMEOUT")
-  {
-    Serial.println(command + "Timeout while waiting for response.");
-  }
-  else
-  {
-    Serial.println("Error: " + response);
-  }
+void configureReconnect()
+{
+  unsigned long timeout = 5000; // 5 seconds
+  String command = "AT+CWRECONNCFG=2,5";
+  String response = sendWifiATCommands(command, "OK", timeout);
   
-  String urlSize = String(globalURL.length());
-  // Set the URL using the AT+QHTTPURL command.
-  command = "AT+QHTTPURL=" + urlSize + ",80";
-  expectedResponse = "CONNECT";
-  timeout = 10000; // Adjust the timeout as needed.
-
-  response = sendATCommand3(command, expectedResponse, timeout);
-
-  if (response == "CONNECT")
-  {
-    Serial.println("AT+QHTTPURL request is ready to accept the URL.");
+  if (response == "OK") {
+    Serial.println("WIFI reconnect config Successful");
+  } else {
+    Serial.println("WIFI reconnect config Failed");
   }
-  else if (response == "TIMEOUT")
-  {
-    Serial.println("Timeout while waiting for the CONNECT response.");
-    return; 
-  }
-  else
-  {
-    Serial.println("Error: " + response);
-    return; 
-  }
+}
 
+void connectToWiFi()
+{
+  // Attempt to connect to the primary Wi-Fi network
+  espSerial.print("AT+CWJAP=\"");
+  espSerial.print(primarySSID);
+  espSerial.print("\",\"");
+  espSerial.print(primaryPassword);
+  espSerial.println("\"");
 
-  command = globalURL;
-  expectedResponse = "OK";
-  timeout = 10000; 
+  unsigned long startTime = millis();
+  boolean espWifiConnected = false;
+  boolean errorOccurred = false;
+  String errorResponse;
 
-  response = sendATCommand3(command, expectedResponse, timeout);
+  while (millis() - startTime < WifiTimeout) {
+    if (espSerial.available()) {
+      String response = espSerial.readStringUntil('\n');
 
-  if (response == "OK")
-  {
-    Serial.println("URL set successfully.");
-  }
-  else if (response == "TIMEOUT")
-  {
-    Serial.println(command + "Timeout while waiting for response.");
-    return; 
-  }
-  else
-  {
-    Serial.println("Error: " + response);
-    return; 
-  }
-
-  command = "AT+QHTTPGET=20";
-  expectedResponse = "+QHTTPGET: 0,200"; 
-  timeout = 30000;
-
-  response = sendATCommand3(command, expectedResponse, timeout);
-
-  if (response == "+QHTTPGET: 0,200")
-  {
-    Serial.println("HTTP GET request sent, waiting for 20 seconds...");
-  }
-  else if (response == "TIMEOUT")
-  {
-    Serial.println(command + "Timeout while waiting for response.");
-  }
-  else
-  {
-    Serial.println("Error: " + response);
-  }
-
-
- 
-  command = "AT+QHTTPREAD=80";
-  timeout = 15000; 
-  eg25.println(command);
-  jsonResponse = "";
-  while (true)
-  {
-    if (eg25.available())
-    {
-      String responseLine = eg25.readStringUntil('\n');
-
-      if (responseLine.startsWith("{"))  
-      {
-        Serial.println("HTTP Response:");
-        jsonStarted = true;
-      }
-
-      if (jsonStarted)
-      {
-        jsonResponse += responseLine;
-        if (responseLine.indexOf("}") != -1)
-        {
-          extractedJSON = jsonResponse;
-          jsonResponse = ""; 
-          jsonStarted = false; 
-          break; 
+      if (response.indexOf("WIFI CONNECTED") != -1) {
+        espWifiConnected = true;
+        break;
+      } else if (response.indexOf("+CWJAP:") != -1) {
+        // An error code is received, parse it
+        int errorCode = response.substring(response.indexOf("+CWJAP:") + 7).toInt();
+        String errorMessage;
+        
+        switch (errorCode) {
+          case 1:
+            errorMessage = "Connection timeout.";
+            break;
+          case 2:
+            errorMessage = "Wrong password.";
+            break;
+          case 3:
+            errorMessage = "Cannot find the target AP.";
+            break;
+          case 4:
+            errorMessage = "Connection failed.";
+            break;
+          default:
+            errorMessage = "Unknown error occurred.";
         }
-      }
-      if (responseLine == "OK" || responseLine == "+QHTTPREAD: 0")
-      {
+
+        errorResponse = "Failed to connect to primary WIFI : " + errorMessage;
+        errorOccurred = true;
+        break;
       }
     }
   }
+
+  if (espWifiConnected) {
+    // "WIFI CONNECTED" received, now wait for "OK"
+    startTime = millis();
+    boolean okReceived = false;
+
+    while (millis() - startTime < WifiTimeout) {
+      if (espSerial.available()) {
+        String response = espSerial.readStringUntil('\n');
+
+        if (response.indexOf("OK") != -1) {
+          okReceived = true;
+          break;
+        }
+      }
+    }
+
+    if (okReceived) {
+      Serial.println("Connected to Wi-Fi: Successful (Primary)");
+    }
+  } else if (errorOccurred) {
+    Serial.println(errorResponse);
+    // Attempt to connect to the secondary Wi-Fi network
+    Serial.println("Reconnceting to secondary WIFI ");
+    espSerial.print("AT+CWJAP=\"");
+    espSerial.print(secondarySSID);
+    espSerial.print("\",\"");
+    espSerial.print(secondaryPassword);
+    espSerial.println("\"");
+
+    startTime = millis();
+    espWifiConnected = false;
+    errorOccurred = false;
+
+    while (millis() - startTime < WifiTimeout) {
+      if (espSerial.available()) {
+        String response = espSerial.readStringUntil('\n');
+
+        if (response.indexOf("WIFI CONNECTED") != -1) {
+          espWifiConnected = true;
+          break;
+        } else if (response.indexOf("+CWJAP:") != -1) {
+          // An error code is received, parse it
+          int errorCode = response.substring(response.indexOf("+CWJAP:") + 7).toInt();
+          String errorMessage;
+          
+          switch (errorCode) {
+            case 1:
+              errorMessage = "Connection timeout.";
+              break;
+            case 2:
+              errorMessage = "Wrong password.";
+              break;
+            case 3:
+              errorMessage = "Cannot find the target AP.";
+              break;
+            case 4:
+              errorMessage = "Connection failed.";
+              break;
+            default:
+              errorMessage = "Unknown error occurred.";
+          }
+
+          errorResponse = "Failed to connect to secondary WIFI " + errorMessage;
+          errorOccurred = true;
+          break;
+        }
+      }
+    }
+
+    if (espWifiConnected) {
+      // "WIFI CONNECTED" received, now wait for "OK"
+      startTime = millis();
+      boolean okReceived = false;
+
+      while (millis() - startTime < WifiTimeout) {
+        if (espSerial.available()) {
+          String response = espSerial.readStringUntil('\n');
+
+          if (response.indexOf("OK") != -1) {
+            okReceived = true;
+            break;
+          }
+        }
+      }
+
+      if (okReceived) {
+        Serial.println("Connected to Wi-Fi: Successful (Secondary)");
+      } 
+    } else if (errorOccurred) {
+      Serial.println(errorResponse);
+    } 
+  }
 }
+void enableAutoConnect()
+{
+  String command = "AT+CWAUTOCONN=1";
+  unsigned long timeout = 5000; // 5 seconds
+
+  String response = sendWifiATCommands(command, "OK", timeout);
+  
+  if (response == "OK") {
+    Serial.println("Autoconnect enabled: Successful");
+  } else {
+    Serial.println("Autoconnect enabling: Failed");
+  }
+}
+
 
 void setup() {
   // put your setup code here, to run once:
   Serial.println("Sample EG25 program is started");
   Serial.begin(allSerialBraudrate);
-  eg25.begin(allSerialBraudrate);
+  espSerial.begin(allSerialBraudrate);
   Serial.println("Please wait......");
-  delay(12000);
-  get4GApiReponse();
-  Serial.println(extractedJSON);
+  delay(7000);
+  resetAndDisconnect();
+  delay(2000);
+  configureReconnect();
+  delay(2000);
+  connectToWiFi();
+  delay(2000);
+  enableAutoConnect();
+  delay(2000);
 }
 void loop() {
-  //  if (eg25.available()) {
-  //   char receivedChar = eg25.read();
-  //   Serial.print(receivedChar);
-  // }
-  // if (Serial.available()) {
-  //   char commandChar = Serial.read();
-  //   eg25.print(commandChar);
-  // }
+   if (espSerial.available()) {
+    char receivedChar = espSerial.read();
+    Serial.print(receivedChar);
+  }
+  if (Serial.available()) {
+    char commandChar = Serial.read();
+    espSerial.print(commandChar);
+  }
 }
 
